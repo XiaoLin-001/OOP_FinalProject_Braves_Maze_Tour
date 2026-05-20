@@ -59,7 +59,7 @@ int main() {
 
             // On floors 3 & 4 the Goal wanders after the player moves.
             if (moved && maze.usesMovableGoal() && !maze.isCleared())
-                maze.moveGoalRandom();
+                maze.moveGoalRandom(player.getRow(), player.getCol());
         }
 
         if (quit) {

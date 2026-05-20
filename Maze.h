@@ -66,7 +66,10 @@ public:
 
     void placeItems();                       // randomly drop keys/obstacles/portals
     bool usesMovableGoal() const { return useMovableGoal; }
-    void moveGoalRandom();                   // wander the MovableGoal one step
+    // Wander the MovableGoal one step. Avoids the player's cell so the goal
+    // can never slide on top of the player (which would leave the player
+    // standing on the goal without ever triggering the clear check).
+    void moveGoalRandom(int playerRow, int playerCol);
     void setGoalPos(int r, int c) { goalRow = r; goalCol = c; }
 };
 

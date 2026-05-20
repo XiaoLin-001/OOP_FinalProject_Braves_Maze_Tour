@@ -211,7 +211,7 @@ bool Maze::reachableWithPortals(int ar, int ac, int br, int bc) const {
 
 // ---- moving goal ------------------------------------------------------------
 
-void Maze::moveGoalRandom() {
+void Maze::moveGoalRandom(int playerRow, int playerCol) {
     if (!useMovableGoal) return;
 
     const int dirs[4][2] = { {-1, 0}, {1, 0}, {0, -1}, {0, 1} };
@@ -224,7 +224,9 @@ void Maze::moveGoalRandom() {
     for (int k = 0; k < 4; ++k) {
         int nr = goalRow + dirs[order[k]][0];
         int nc = goalCol + dirs[order[k]][1];
-        // Goal may only step onto plain Empty cells (never Wall/Obstacle/etc).
+        // Goal may only step onto plain Empty cells (never Wall/Obstacle/etc),
+        // and never onto the player.
+        if (nr == playerRow && nc == playerCol) continue;
         if (inBounds(nr, nc) && grid[nr][nc]->getType() == BlockType::EMPTY) {
             bool gVis = grid[goalRow][goalCol]->getVisible();
             bool tVis = grid[nr][nc]->getVisible();
