@@ -35,6 +35,11 @@ private:
 
     void buildFromGrid(const std::vector<std::vector<int>>& nums);  // shared setup
 
+    // Can the Goal still be reached from the start if a portal pair sits at
+    // (ar,ac) and (br,bc)? Models the forced teleport so portals never seal
+    // off the only path (which would soft-lock a perfect maze).
+    bool reachableWithPortals(int ar, int ac, int br, int bc) const;
+
 public:
     Maze(int level, GameMode mode);
     ~Maze();

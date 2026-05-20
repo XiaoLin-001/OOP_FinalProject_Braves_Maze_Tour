@@ -8,6 +8,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <utility>
+#include <queue>
 
 // Side length used for each floor (must be odd for the generators).
 // Floor 1->9, 2->13, 3->17, 4->21 (deeper floors are bigger).
@@ -144,17 +145,68 @@ void Maze::placeItems() {
     for (int k = 0; k < nObs && idx < empties.size(); ++k, ++idx)
         setBlock(empties[idx].first, empties[idx].second, new Obstacle());
 
-    // One pair of portals.
-    if (idx + 1 < empties.size()) {
-        std::pair<int, int> p1 = empties[idx++];
-        std::pair<int, int> p2 = empties[idx++];
-        Portal* A = new Portal();
-        Portal* B = new Portal();
-        A->setPartner(p2.first, p2.second);
-        B->setPartner(p1.first, p1.second);
-        setBlock(p1.first, p1.second, A);
-        setBlock(p2.first, p2.second, B);
+    // One pair of portals -- but only at positions that keep the Goal
+    // reachable (a portal on the unique path would otherwise soft-lock).
+    // Keys/obstacles never block (walkable / breakable), so we only need to
+    // validate the portal pair against the maze walls.
+    size_t remaining = (idx < empties.size()) ? (empties.size() - idx) : 0;
+    if (remaining >= 2) {
+        for (int attempt = 0; attempt < 200; ++attempt) {
+            size_t i1 = idx + (size_t)(rand() % remaining);
+            size_t i2 = idx + (size_t)(rand() % remaining);
+            if (i1 == i2) continue;
+
+            std::pair<int, int> p1 = empties[i1];
+            std::pair<int, int> p2 = empties[i2];
+            if (!reachableWithPortals(p1.first, p1.second, p2.first, p2.second))
+                continue;
+
+            Portal* A = new Portal();
+            Portal* B = new Portal();
+            A->setPartner(p2.first, p2.second);
+            B->setPartner(p1.first, p1.second);
+            setBlock(p1.first, p1.second, A);
+            setBlock(p2.first, p2.second, B);
+            break;
+        }
+        // If no safe pair is found in 200 tries, simply skip portals this floor.
     }
+}
+
+// BFS over the cells the player can stand on. The key detail: stepping onto a
+// portal cell relocates you to its partner, so the portal cell is never a
+// "stand" state you pass through -- you always end up on the partner instead.
+bool Maze::reachableWithPortals(int ar, int ac, int br, int bc) const {
+    std::vector<std::vector<bool>> vis(nRow, std::vector<bool>(nCol, false));
+    std::queue<std::pair<int, int>> q;
+    vis[1][1] = true;
+    q.push(std::make_pair(1, 1));
+
+    const int dr[4] = { -1, 1, 0, 0 };
+    const int dc[4] = { 0, 0, -1, 1 };
+
+    while (!q.empty()) {
+        int cr = q.front().first;
+        int cc = q.front().second;
+        q.pop();
+
+        for (int k = 0; k < 4; ++k) {
+            int yr = cr + dr[k], yc = cc + dc[k];
+            if (!inBounds(yr, yc)) continue;
+            if (grid[yr][yc]->getType() == BlockType::WALL) continue;
+
+            // Where do we actually end up standing?
+            int dr2 = yr, dc2 = yc;
+            if (yr == ar && yc == ac) { dr2 = br; dc2 = bc; }   // teleport A->B
+            else if (yr == br && yc == bc) { dr2 = ar; dc2 = ac; } // teleport B->A
+
+            if (!vis[dr2][dc2]) {
+                vis[dr2][dc2] = true;
+                q.push(std::make_pair(dr2, dc2));
+            }
+        }
+    }
+    return vis[goalRow][goalCol];
 }
 
 // ---- moving goal ------------------------------------------------------------
