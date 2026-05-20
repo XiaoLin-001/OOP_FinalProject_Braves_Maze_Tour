@@ -64,13 +64,15 @@ Goal::Goal() {
 }
 
 bool Goal::player_touched(Player& player, Maze& maze, int row, int col) {
+    // Always let the player step onto the Goal so a (moving) Goal can never
+    // seal the player into a dead end. Clearing only happens with every key.
+    player.setPos(row, col);
     if (player.getKeyCollected() >= maze.getNKey()) {
         maze.setCleared(true);
-        player.setPos(row, col);
-        return true;
+    } else {
+        maze.setMessage("The Goal is sealed -- collect every key first!");
     }
-    maze.setMessage("Collect every key before entering the Goal!");
-    return false;
+    return true;
 }
 
 // ---- Key --------------------------------------------------------------------

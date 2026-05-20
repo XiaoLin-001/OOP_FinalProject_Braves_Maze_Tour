@@ -136,19 +136,26 @@ void Maze::placeItems() {
 
     size_t idx = 0;
 
-    // N keys on floor N.
-    for (int k = 0; k < nKey && idx < empties.size(); ++k, ++idx)
+    // N keys on floor N. Remember where they went so we can guarantee they
+    // stay reachable when the portals are placed.
+    std::vector<std::pair<int, int>> keyCells;
+    for (int k = 0; k < nKey && idx < empties.size(); ++k, ++idx) {
         setBlock(empties[idx].first, empties[idx].second, new Key());
+        keyCells.push_back(empties[idx]);
+    }
 
     // A few obstacles (more on deeper floors).
     int nObs = level + 1;
     for (int k = 0; k < nObs && idx < empties.size(); ++k, ++idx)
         setBlock(empties[idx].first, empties[idx].second, new Obstacle());
 
-    // One pair of portals -- but only at positions that keep the Goal
-    // reachable (a portal on the unique path would otherwise soft-lock).
-    // Keys/obstacles never block (walkable / breakable), so we only need to
-    // validate the portal pair against the maze walls.
+    // One pair of portals -- but only at positions that keep the Goal AND
+    // every Key reachable (a portal guarding the only way in would otherwise
+    // soft-lock the floor). Obstacles never block (breakable), so they are
+    // not part of the requirement.
+    std::vector<std::pair<int, int>> required = keyCells;
+    required.push_back(std::make_pair(goalRow, goalCol));
+
     size_t remaining = (idx < empties.size()) ? (empties.size() - idx) : 0;
     if (remaining >= 2) {
         for (int attempt = 0; attempt < 200; ++attempt) {
@@ -158,7 +165,7 @@ void Maze::placeItems() {
 
             std::pair<int, int> p1 = empties[i1];
             std::pair<int, int> p2 = empties[i2];
-            if (!reachableWithPortals(p1.first, p1.second, p2.first, p2.second))
+            if (!reachableWithPortals(p1.first, p1.second, p2.first, p2.second, required))
                 continue;
 
             Portal* A = new Portal();
@@ -173,10 +180,14 @@ void Maze::placeItems() {
     }
 }
 
-// BFS over the cells the player can stand on. The key detail: stepping onto a
-// portal cell relocates you to its partner, so the portal cell is never a
-// "stand" state you pass through -- you always end up on the partner instead.
-bool Maze::reachableWithPortals(int ar, int ac, int br, int bc) const {
+// Plain BFS from the start that treats walls AND the two portal cells as
+// impassable. If every Key and the Goal is still reachable, then a natural
+// walking path to each one exists that never touches a portal -- so the
+// portals can only ever be optional shortcuts, never gates or traps. (Stepping
+// onto a portal would teleport you, so we must not rely on one to reach a
+// required cell, even though it would be technically solvable via its partner.)
+bool Maze::reachableWithPortals(int ar, int ac, int br, int bc,
+                                const std::vector<std::pair<int, int>>& required) const {
     std::vector<std::vector<bool>> vis(nRow, std::vector<bool>(nCol, false));
     std::queue<std::pair<int, int>> q;
     vis[1][1] = true;
@@ -194,19 +205,20 @@ bool Maze::reachableWithPortals(int ar, int ac, int br, int bc) const {
             int yr = cr + dr[k], yc = cc + dc[k];
             if (!inBounds(yr, yc)) continue;
             if (grid[yr][yc]->getType() == BlockType::WALL) continue;
+            if ((yr == ar && yc == ac) || (yr == br && yc == bc)) continue; // portal = blocked
 
-            // Where do we actually end up standing?
-            int dr2 = yr, dc2 = yc;
-            if (yr == ar && yc == ac) { dr2 = br; dc2 = bc; }   // teleport A->B
-            else if (yr == br && yc == bc) { dr2 = ar; dc2 = ac; } // teleport B->A
-
-            if (!vis[dr2][dc2]) {
-                vis[dr2][dc2] = true;
-                q.push(std::make_pair(dr2, dc2));
+            if (!vis[yr][yc]) {
+                vis[yr][yc] = true;
+                q.push(std::make_pair(yr, yc));
             }
         }
     }
-    return vis[goalRow][goalCol];
+
+    // Every required cell (Goal + all Keys) must be reachable portal-free.
+    for (size_t i = 0; i < required.size(); ++i)
+        if (!vis[required[i].first][required[i].second])
+            return false;
+    return true;
 }
 
 // ---- moving goal ------------------------------------------------------------
