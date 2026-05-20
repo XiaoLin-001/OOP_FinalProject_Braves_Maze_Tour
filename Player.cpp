@@ -3,6 +3,25 @@
 #include "Block.h"
 
 #include <iostream>
+#include <termios.h>
+#include <unistd.h>
+
+// Read a single keystroke immediately (no Enter, no echo) on Linux.
+// Temporarily switches the terminal to raw mode, reads one char, restores it.
+static char getch_raw() {
+    struct termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);       // disable line buffering + echo
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    char ch = 0;
+    ssize_t n = read(STDIN_FILENO, &ch, 1);
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt); // restore terminal
+    if (n <= 0) return 'E';                  // EOF -> treat as exit
+    return ch;
+}
 
 // Build one 3x3 animation frame from three 3-char rows.
 static std::vector<std::vector<char>> makeFrame(const char* a, const char* b, const char* c) {
@@ -27,9 +46,7 @@ Player::Player()
 }
 
 char Player::get_direction() {
-    char ch;
-    std::cin >> ch;
-    return ch;
+    return getch_raw();
 }
 
 void Player::change_symbol() {

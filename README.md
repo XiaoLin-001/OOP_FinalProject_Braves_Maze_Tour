@@ -2,23 +2,26 @@
 
 四層迷宮探索遊戲。每一層要收集完所有鑰匙，再走到終點（Goal）才能進入下一層。
 
-## 編譯與執行
+## 遊戲模式
 
-### Linux（demo 環境）
+開始時可選擇三種模式：
+
+| 模式 | 地圖來源 | 說明 |
+|------|----------|------|
+| **[1] Easy（教學）** | 固定迷宮（讀檔 maze_*.txt） | 熟悉操作與遊戲規則 |
+| **[2] Normal** | Recursive Backtracker (DFS) 生成 | 走廊長而蜿蜒、岔路少 |
+| **[3] Hard** | Randomized Kruskal's 生成 | 岔路多、死路短，最考驗探索 |
+
+Normal / Hard 每次開始都會生成不同的地圖（保證 Goal 必定可達）。
+
+## 編譯與執行（Linux）
+
+> 本程式使用 `termios` 做即時鍵盤輸入，僅支援 **Linux**（demo 環境）。
 
 ```bash
 make            # 編譯，產生 ./brave_tour
 ./brave_tour    # 開始遊戲
 make clean      # 清除編譯產物
-```
-
-### Windows（本機開發，使用 MinGW）
-
-`make` 需要安裝 mingw32-make，或直接用 g++ 編譯：
-
-```powershell
-g++ -std=c++11 -Wall -o brave_tour main.cpp Block.cpp Player.cpp Maze.cpp
-.\brave_tour.exe
 ```
 
 > 注意：地圖檔 `maze_1.txt ~ maze_4.txt` 需與執行檔放在**同一個資料夾**，
@@ -34,7 +37,7 @@ g++ -std=c++11 -Wall -o brave_tour main.cpp Block.cpp Player.cpp Maze.cpp
 | `D` | 向右移動 |
 | `E` | 離開遊戲 |
 
-- 每按一次方向鍵後按 **Enter** 送出。
+- **按一下立即移動**，不需要按 Enter。
 - 畫面會自動刷新，並在下方顯示樓層、鑰匙數量、攻擊力與遊戲時間。
 
 ## 遊戲畫面元素

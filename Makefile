@@ -1,7 +1,7 @@
 CXX      = g++
 CXXFLAGS = -std=c++11 -Wall -Wextra
 TARGET   = brave_tour
-OBJS     = main.o Block.o Player.o Maze.o
+OBJS     = main.o Block.o Player.o Maze.o MazeGenerator.o
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS)
@@ -15,8 +15,11 @@ Block.o: Block.cpp Block.h Player.h Maze.h
 Player.o: Player.cpp Player.h Block.h Maze.h
 	$(CXX) $(CXXFLAGS) -c Player.cpp
 
-Maze.o: Maze.cpp Maze.h Block.h Player.h
+Maze.o: Maze.cpp Maze.h Block.h Player.h MazeGenerator.h
 	$(CXX) $(CXXFLAGS) -c Maze.cpp
+
+MazeGenerator.o: MazeGenerator.cpp MazeGenerator.h
+	$(CXX) $(CXXFLAGS) -c MazeGenerator.cpp
 
 clean:
 	rm -f $(OBJS) $(TARGET)

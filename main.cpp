@@ -16,17 +16,30 @@ int main() {
 
     Player player;
 
-    std::cout << "==============================\n";
-    std::cout << "      Brave's Maze Tour\n";
-    std::cout << "==============================\n";
-    std::cout << "Press Enter to begin...";
-    std::cin.get();
+    // --- Mode selection ---
+    GameMode mode = GameMode::EASY;
+    while (true) {
+        std::cout << "\033[2J\033[1;1H";
+        std::cout << "==============================\n";
+        std::cout << "      Brave's Maze Tour\n";
+        std::cout << "==============================\n\n";
+        std::cout << "Choose a mode:\n\n";
+        std::cout << "  [1] Easy   - tutorial, fixed maze\n";
+        std::cout << "  [2] Normal - DFS generated maze\n";
+        std::cout << "  [3] Hard   - Kruskal generated maze\n\n";
+        std::cout << "Press 1 / 2 / 3 to start...";
+
+        char c = player.get_direction();
+        if (c == '1') { mode = GameMode::EASY;   break; }
+        if (c == '2') { mode = GameMode::NORMAL; break; }
+        if (c == '3') { mode = GameMode::HARD;   break; }
+        if (c == 'e' || c == 'E') return 0;
+    }
 
     for (int level = 1; level <= 4; ++level) {
-        std::string fname = "maze_" + std::to_string(level) + ".txt";
-        Maze maze(fname, level);
+        Maze maze(level, mode);
         if (maze.get_nRow() == 0) {
-            std::cerr << "Failed to load " << fname << "\n";
+            std::cerr << "Failed to build maze for floor " << level << "\n";
             return 1;
         }
 
@@ -56,9 +69,8 @@ int main() {
 
         std::cout << "\033[2J\033[1;1H";
         std::cout << "*** Floor " << level << " cleared! ***\n";
-        std::cout << "Press Enter for the next floor...";
-        std::cin.get();
-        std::cin.get();
+        std::cout << "Press any key for the next floor...";
+        player.get_direction();
     }
 
     std::cout << "\033[2J\033[1;1H";

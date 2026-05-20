@@ -1,6 +1,7 @@
 #include "Maze.h"
 #include "Block.h"
 #include "Player.h"
+#include "MazeGenerator.h"
 
 #include <fstream>
 #include <sstream>
@@ -8,36 +9,52 @@
 #include <cstdlib>
 #include <utility>
 
-// ---- construction / file loading -------------------------------------------
+// Side length used for each floor (must be odd for the generators).
+// Floor 1->9, 2->13, 3->17, 4->21 (deeper floors are bigger).
+static int sizeForLevel(int level) {
+    return 5 + 4 * level;
+}
 
-Maze::Maze(const std::string& filename, int lv)
+// ---- construction -----------------------------------------------------------
+
+Maze::Maze(int lv, GameMode mode)
     : nRow(0), nCol(0), nKey(lv), level(lv),
       useMovableGoal(lv >= 3), goalRow(0), goalCol(0),
       levelCleared(false), message("") {
 
-    std::ifstream fin(filename.c_str());
-    if (!fin) {
-        std::cerr << "Cannot open " << filename << "\n";
-        return;
-    }
-
-    // Read the file into a temporary integer grid first.
     std::vector<std::vector<int>> nums;
-    std::string line;
-    while (std::getline(fin, line)) {
-        std::istringstream iss(line);
-        std::vector<int> r;
-        int v;
-        while (iss >> v) r.push_back(v);
-        if (!r.empty()) nums.push_back(r);
+
+    if (mode == GameMode::EASY) {
+        // Fixed tutorial maze read from file.
+        std::string filename = "maze_" + std::to_string(lv) + ".txt";
+        std::ifstream fin(filename.c_str());
+        if (!fin) {
+            std::cerr << "Cannot open " << filename << "\n";
+            return;
+        }
+        std::string line;
+        while (std::getline(fin, line)) {
+            std::istringstream iss(line);
+            std::vector<int> r;
+            int v;
+            while (iss >> v) r.push_back(v);
+            if (!r.empty()) nums.push_back(r);
+        }
+    } else if (mode == GameMode::NORMAL) {
+        nums = MazeGen::generateDFS(sizeForLevel(lv));
+    } else { // HARD
+        nums = MazeGen::generateKruskal(sizeForLevel(lv));
     }
 
+    buildFromGrid(nums);
+}
+
+// Turn the integer grid (0=Empty, 1=Wall, 2=Goal) into Block objects.
+void Maze::buildFromGrid(const std::vector<std::vector<int>>& nums) {
     nRow = (int)nums.size();
     nCol = nRow ? (int)nums[0].size() : 0;
     grid.assign(nRow, std::vector<Block*>(nCol, nullptr));
 
-    // Convert each number into the matching Block object.
-    //   1 -> Wall, 2 -> Goal/MovableGoal, anything else -> Empty
     for (int i = 0; i < nRow; ++i) {
         for (int j = 0; j < nCol; ++j) {
             int v = nums[i][j];
