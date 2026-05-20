@@ -1,0 +1,60 @@
+#ifndef MAZE_H
+#define MAZE_H
+
+#include <vector>
+#include <string>
+#include <utility>
+
+class Block;
+class Player;
+
+// ----------------------------------------------------------------------------
+// Maze : owns the 2D grid of Block* for one floor, plus all the bookkeeping
+// for that floor (key count, the goal position, fog-of-war, etc.).
+// ----------------------------------------------------------------------------
+class Maze {
+private:
+    std::vector<std::vector<Block*>> grid;   // the map, stored as objects
+    int nRow, nCol;
+    int nKey;                                // keys required on this floor (= level)
+    int level;
+    bool useMovableGoal;                     // floors 3 & 4 use a MovableGoal
+    int goalRow, goalCol;                    // current goal location
+    bool levelCleared;
+    std::string message;                     // last status line shown in the HUD
+
+    // Cells scheduled to turn into Empty after the current action resolves
+    // (used so a Block never deletes itself mid-method).
+    std::vector<std::pair<int, int>> toEmpty;
+
+public:
+    Maze(const std::string& filename, int level);
+    ~Maze();
+
+    int get_nRow() const { return nRow; }
+    int get_nCol() const { return nCol; }
+    int getNKey() const { return nKey; }
+    int getLevel() const { return level; }
+
+    bool inBounds(int r, int c) const;
+    Block* at(int r, int c);
+    void setBlock(int r, int c, Block* b);   // delete old, install new
+
+    void markEmpty(int r, int c) { toEmpty.push_back(std::make_pair(r, c)); }
+    void commit();                           // apply scheduled removals
+
+    void reveal(int r, int c);               // light up the 3x3 around (r,c)
+
+    void printMaze(Player& player);          // clear screen + draw map + HUD
+
+    bool isCleared() const { return levelCleared; }
+    void setCleared(bool v) { levelCleared = v; }
+    void setMessage(const std::string& m) { message = m; }
+
+    void placeItems();                       // randomly drop keys/obstacles/portals
+    bool usesMovableGoal() const { return useMovableGoal; }
+    void moveGoalRandom();                   // wander the MovableGoal one step
+    void setGoalPos(int r, int c) { goalRow = r; goalCol = c; }
+};
+
+#endif // MAZE_H
