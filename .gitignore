@@ -1,0 +1,22 @@
+# ---- Build artifacts (not part of the submitted source) ----
+*.o
+*.obj
+*.exe
+*.d
+
+# Linux build output from `make`
+brave_tour
+
+# ---- Local game data ----
+replays/
+replays.txt
+
+# ---- Scratch / local test files ----
+_*
+
+# ---- Editor / OS junk ----
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

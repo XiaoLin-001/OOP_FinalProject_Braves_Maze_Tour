@@ -6,7 +6,7 @@
 // Type tag so the Maze / renderer can ask a Block what it is
 // without a dynamic_cast everywhere.
 enum class BlockType {
-    EMPTY, WALL, GOAL, KEY, OBSTACLE, PORTAL, MOVABLE_GOAL
+    EMPTY, WALL, GOAL, KEY, OBSTACLE, PORTAL, MOVABLE_GOAL, MONSTER
 };
 
 class Player;   // forward declaration (see Player.h)
@@ -94,6 +94,15 @@ private:
 public:
     Portal();
     void setPartner(int r, int c) { partnerRow = r; partnerCol = c; }
+    bool player_touched(Player& player, Maze& maze, int row, int col) override;
+};
+
+class Monster : public Block {
+private:
+    int level;
+public:
+    Monster(int lv);
+    int getLevel() const { return level; }
     bool player_touched(Player& player, Maze& maze, int row, int col) override;
 };
 
