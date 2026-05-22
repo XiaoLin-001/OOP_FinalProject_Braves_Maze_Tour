@@ -6,6 +6,9 @@
 
 class Maze;     // forward declaration
 
+char read_key();
+int wait_key(int ms);
+
 // ----------------------------------------------------------------------------
 // Player : the brave adventurer. Holds its position (in *block* coordinates,
 // not pixels), how many keys it has collected, attack power, and a couple of
@@ -16,7 +19,12 @@ private:
     int player_row;
     int player_col;
     int keyCollected;
-    int ATK;                                              // attack power = 10
+    int ATK;                                              // attack power (grows on level up)
+
+    // RPG stats (extra feature). HP/EXP/Level persist across floors.
+    int level;
+    int HP, maxHP;
+    int EXP, expToNext;
 
     std::vector<std::vector<std::vector<char>>> frames;   // animation frames (3x3 each)
     int frameIndex;
@@ -38,7 +46,20 @@ public:
 
     int getATK() const { return ATK; }
 
-    // Reset position/keys for a new floor (the timer keeps running).
+    // --- RPG stats ---
+    static const int MAX_LEVEL = 15;
+    int getLevel() const { return level; }
+    int getHP() const { return HP; }
+    int getMaxHP() const { return maxHP; }
+    int getEXP() const { return EXP; }
+    int getExpToNext() const { return expToNext; }
+    bool isDead() const { return HP <= 0; }
+
+    void gainEXP(int amount);    // add EXP, level up (and heal) when enough
+    void takeDamage(int dmg);    // reduce HP, floored at 0
+    void heal(int amount);       // restore HP up to maxHP
+
+    // Reset position/keys for a new floor (stats and timer keep going).
     void resetForLevel() { player_row = 1; player_col = 1; keyCollected = 0; frameIndex = 0; }
 
     char render(int sr, int sc) const { return frames[frameIndex][sr][sc]; }

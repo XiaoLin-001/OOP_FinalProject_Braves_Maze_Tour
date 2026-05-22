@@ -27,6 +27,10 @@ private:
     bool useMovableGoal;                     // floors 3 & 4 use a MovableGoal
     int goalRow, goalCol;                    // current goal location
     bool levelCleared;
+    bool darkMode;                           // extra module: pitch-black / no map memory
+    bool fullBright;                         // extra module: whole map always visible
+    bool replayTag;                          // showing a recorded replay
+    bool spawnMonsters;                      // extra module: place monsters
     std::string message;                     // last status line shown in the HUD
 
     // Cells scheduled to turn into Empty after the current action resolves
@@ -35,11 +39,8 @@ private:
 
     void buildFromGrid(const std::vector<std::vector<int>>& nums);  // shared setup
 
-    // With a portal pair at (ar,ac)/(br,bc), are ALL the given cells still
-    // reachable from the start? Models the forced teleport so portals never
-    // seal off the Goal or any Key (which would soft-lock the floor).
-    bool reachableWithPortals(int ar, int ac, int br, int bc,
-                              const std::vector<std::pair<int, int>>& required) const;
+    bool reachableAvoiding(const std::vector<std::pair<int, int>>& blocked,
+                           const std::vector<std::pair<int, int>>& required) const;
 
 public:
     Maze(int level, GameMode mode);
@@ -49,6 +50,10 @@ public:
     int get_nCol() const { return nCol; }
     int getNKey() const { return nKey; }
     int getLevel() const { return level; }
+    void setDarkMode(bool v) { darkMode = v; }
+    void setSpawnMonsters(bool v) { spawnMonsters = v; }
+    void setFullBright(bool v) { fullBright = v; }
+    void setReplayTag(bool v) { replayTag = v; }
 
     bool inBounds(int r, int c) const;
     Block* at(int r, int c);

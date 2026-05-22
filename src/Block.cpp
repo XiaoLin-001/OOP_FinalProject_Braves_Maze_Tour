@@ -136,3 +136,26 @@ bool Portal::player_touched(Player& player, Maze& maze, int, int) {
     player.setPos(partnerRow, partnerCol);
     return true;
 }
+
+Monster::Monster(int lv) {
+    type = BlockType::MONSTER;
+    level = lv;
+    char d = (lv >= 1 && lv <= 9) ? (char)('0' + lv) : '*';
+    char mid[4] = { ' ', d, ' ', '\0' };
+    fill("/M\\", mid, "\\_/");
+}
+
+bool Monster::player_touched(Player& player, Maze& maze, int row, int col) {
+    if (level > player.getLevel()) {
+        player.takeDamage(player.getMaxHP() + 9999);
+        maze.setMessage("A Lv" + std::to_string(level) + " monster strikes you down!");
+        return false;
+    }
+    int gained = 50 + rand() % 51;
+    player.gainEXP(gained);
+    maze.setMessage("Defeated a Lv" + std::to_string(level) +
+                    " monster!  +" + std::to_string(gained) + " EXP");
+    maze.markEmpty(row, col);
+    player.setPos(row, col);
+    return true;
+}
