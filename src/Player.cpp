@@ -69,7 +69,6 @@
   }
 #endif
 
-// Build one 3x3 animation frame from three 3-char rows.
 static std::vector<std::vector<char>> makeFrame(const char* a, const char* b, const char* c) {
     std::vector<std::vector<char>> f(3, std::vector<char>(3, ' '));
     const char* rows[3] = { a, b, c };
@@ -81,8 +80,8 @@ static std::vector<std::vector<char>> makeFrame(const char* a, const char* b, co
 
 Player::Player()
     : player_row(1), player_col(1), keyCollected(0), ATK(10),
-      level(1), HP(100), maxHP(100), EXP(0), expToNext(100), frameIndex(0) {
-    // Two little stick-figure frames; the legs/arms flip when walking.
+      level(1), HP(100), maxHP(100), EXP(0), expToNext(100),
+      totalExp(0), monstersDefeated(0), frameIndex(0) {
     frames.push_back(makeFrame(" o ",
                                "/|\\",
                                "/ \\"));
@@ -119,30 +118,30 @@ bool Player::move(char direction, Maze& maze) {
     if (!maze.inBounds(tr, tc))
         return false;
 
-    // Let the target block decide what happens (polymorphic collision).
     Block* target = maze.at(tr, tc);
     bool moved = target->player_touched(*this, maze, tr, tc);
 
     if (moved) {
-        change_symbol();                       // sprite changes on every move
-        maze.reveal(player_row, player_col);   // light up the new surroundings
+        change_symbol();
+        maze.reveal(player_row, player_col);
     }
-    maze.commit();   // turn any collected keys / broken obstacles into Empty
+    maze.commit();
     return moved;
 }
 
 void Player::gainEXP(int amount) {
+    totalExp += amount;
     if (level >= MAX_LEVEL) return;
     EXP += amount;
     while (level < MAX_LEVEL && EXP >= expToNext) {
         EXP -= expToNext;
         level++;
         maxHP += 20;
-        HP = maxHP;          // full heal on level up
+        HP = maxHP;
         ATK += 5;
-        expToNext += 50;     // each level needs a bit more
+        expToNext += 50;
     }
-    if (level >= MAX_LEVEL) EXP = 0;   // capped
+    if (level >= MAX_LEVEL) EXP = 0;
 }
 
 void Player::takeDamage(int dmg) {

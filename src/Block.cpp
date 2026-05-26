@@ -5,8 +5,6 @@
 #include <cstdlib>
 #include <string>
 
-// ---- Block (base) -----------------------------------------------------------
-
 Block::Block() : isVisible(false), type(BlockType::EMPTY) {
     symbol.assign(3, std::vector<char>(3, ' '));
 }
@@ -21,12 +19,9 @@ void Block::fill(const char* r0, const char* r1, const char* r2) {
             symbol[i][j] = rows[i][j];
 }
 
-// Default: an unknown block blocks movement (should never be reached).
 bool Block::player_touched(Player&, Maze&, int, int) {
     return false;
 }
-
-// ---- Empty ------------------------------------------------------------------
 
 Empty::Empty() {
     type = BlockType::EMPTY;
@@ -40,8 +35,6 @@ bool Empty::player_touched(Player& player, Maze&, int row, int col) {
     return true;
 }
 
-// ---- Wall -------------------------------------------------------------------
-
 Wall::Wall() {
     type = BlockType::WALL;
     fill("###",
@@ -51,10 +44,8 @@ Wall::Wall() {
 
 bool Wall::player_touched(Player&, Maze& maze, int, int) {
     maze.setMessage("A wall blocks your path.");
-    return false;   // invalid move
+    return false;
 }
-
-// ---- Goal -------------------------------------------------------------------
 
 Goal::Goal() {
     type = BlockType::GOAL;
@@ -64,8 +55,6 @@ Goal::Goal() {
 }
 
 bool Goal::player_touched(Player& player, Maze& maze, int row, int col) {
-    // Always let the player step onto the Goal so a (moving) Goal can never
-    // seal the player into a dead end. Clearing only happens with every key.
     player.setPos(row, col);
     if (player.getKeyCollected() >= maze.getNKey()) {
         maze.setCleared(true);
@@ -74,8 +63,6 @@ bool Goal::player_touched(Player& player, Maze& maze, int row, int col) {
     }
     return true;
 }
-
-// ---- Key --------------------------------------------------------------------
 
 Key::Key() {
     type = BlockType::KEY;
@@ -87,16 +74,14 @@ Key::Key() {
 bool Key::player_touched(Player& player, Maze& maze, int row, int col) {
     player.collectKey();
     maze.setMessage("You picked up a Key!");
-    maze.markEmpty(row, col);   // the key is gone after this
+    maze.markEmpty(row, col);
     player.setPos(row, col);
     return true;
 }
 
-// ---- Obstacle ---------------------------------------------------------------
-
 Obstacle::Obstacle() {
     type = BlockType::OBSTACLE;
-    HP = 10 + (rand() % 5) * 10;    // 10, 20, 30, 40 or 50
+    HP = 10 + (rand() % 5) * 10;
     fill("/X\\",
          "XXX",
          "\\X/");
@@ -110,10 +95,8 @@ bool Obstacle::player_touched(Player& player, Maze& maze, int row, int col) {
     } else {
         maze.setMessage("You strike the obstacle. HP left: " + std::to_string(HP));
     }
-    return false;   // never move onto the obstacle the same turn it is hit
+    return false;
 }
-
-// ---- MovableGoal ------------------------------------------------------------
 
 MovableGoal::MovableGoal() {
     type = BlockType::MOVABLE_GOAL;
@@ -121,8 +104,6 @@ MovableGoal::MovableGoal() {
          "$@$",
          " $ ");
 }
-
-// ---- Portal -----------------------------------------------------------------
 
 Portal::Portal() : partnerRow(1), partnerCol(1) {
     type = BlockType::PORTAL;
@@ -137,24 +118,64 @@ bool Portal::player_touched(Player& player, Maze& maze, int, int) {
     return true;
 }
 
+static const int MON_HP_PER_LEVEL  = 10;
+static const int MON_DMG_PER_LEVEL = 3;
+static const int HP_POTION_HEAL    = 40;
+
 Monster::Monster(int lv) {
     type = BlockType::MONSTER;
     level = lv;
+    hp = lv * MON_HP_PER_LEVEL;
     char d = (lv >= 1 && lv <= 9) ? (char)('0' + lv) : '*';
     char mid[4] = { ' ', d, ' ', '\0' };
     fill("/M\\", mid, "\\_/");
 }
 
 bool Monster::player_touched(Player& player, Maze& maze, int row, int col) {
-    if (level > player.getLevel()) {
-        player.takeDamage(player.getMaxHP() + 9999);
-        maze.setMessage("A Lv" + std::to_string(level) + " monster strikes you down!");
-        return false;
+    hp -= player.getATK();
+    if (hp <= 0) {
+        int gained = 40 + level * 10;
+        player.gainEXP(gained);
+        player.defeatMonster();
+        maze.setMessage("Defeated a Lv" + std::to_string(level) +
+                        " monster!  +" + std::to_string(gained) + " EXP");
+        maze.markEmpty(row, col);
+        player.setPos(row, col);
+        return true;
     }
-    int gained = 50 + rand() % 51;
-    player.gainEXP(gained);
-    maze.setMessage("Defeated a Lv" + std::to_string(level) +
-                    " monster!  +" + std::to_string(gained) + " EXP");
+    int dmg = level * MON_DMG_PER_LEVEL;
+    player.takeDamage(dmg);
+    maze.setMessage("Lv" + std::to_string(level) + " monster (HP " +
+                    std::to_string(hp) + ") hits back  -" + std::to_string(dmg) + " HP");
+    return false;
+}
+
+ExpPotion::ExpPotion() {
+    type = BlockType::EXP_POTION;
+    fill(" _ ",
+         "|E|",
+         "\\_/");
+}
+
+bool ExpPotion::player_touched(Player& player, Maze& maze, int row, int col) {
+    int gain = 100;
+    player.gainEXP(gain);
+    maze.setMessage("EXP potion!  +" + std::to_string(gain) + " EXP");
+    maze.markEmpty(row, col);
+    player.setPos(row, col);
+    return true;
+}
+
+HpPotion::HpPotion() {
+    type = BlockType::HP_POTION;
+    fill(" + ",
+         "|H|",
+         "\\_/");
+}
+
+bool HpPotion::player_touched(Player& player, Maze& maze, int row, int col) {
+    player.heal(HP_POTION_HEAL);
+    maze.setMessage("HP potion!  +" + std::to_string(HP_POTION_HEAL) + " HP");
     maze.markEmpty(row, col);
     player.setPos(row, col);
     return true;

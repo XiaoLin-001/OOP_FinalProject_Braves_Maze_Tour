@@ -37,7 +37,7 @@ bool saveReplay(const ReplayRecord& r, const std::string& dir) {
     std::ofstream f(path.c_str());
     if (!f) return false;
     f << r.seed << " " << r.mode << " " << r.darkness << " " << r.fullbright
-      << " " << r.monsters << " " << r.clearTime << " " << r.score
+      << " " << r.monsters << " " << r.timeattack << " " << r.clearTime << " " << r.score
       << " " << r.keys.size();
     for (size_t i = 0; i < r.keys.size(); ++i)
         f << " " << r.keys[i];
@@ -76,7 +76,7 @@ static bool parseRecord(const std::string& path, ReplayRecord& r) {
     if (!f) return false;
     size_t n = 0;
     if (!(f >> r.seed >> r.mode >> r.darkness >> r.fullbright >> r.monsters
-            >> r.clearTime >> r.score >> n))
+            >> r.timeattack >> r.clearTime >> r.score >> n))
         return false;
     r.keys.clear();
     r.keys.reserve(n);

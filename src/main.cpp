@@ -32,11 +32,16 @@ struct RunContext {
     bool darkness;
     bool fullbright;
     bool monsters;
+    bool timeAttack;
     unsigned seed;
     std::vector<int> recorded;
 };
 
-enum class RunOutcome { COMPLETED, ABORTED, DIED };
+enum class RunOutcome { COMPLETED, ABORTED, DIED, TIMEOUT };
+
+static int floorTimeLimit(int level) {
+    return 45 + 30 * level;
+}
 
 static bool isBack(char k) {
     return k == 'b' || k == 'B' || k == 27;
@@ -66,13 +71,33 @@ static RunOutcome runGame(RunContext& ctx, Player& player, long& clearTime) {
         maze.setDarkMode(ctx.darkness);
         maze.setFullBright(ctx.fullbright);
         maze.setSpawnMonsters(ctx.monsters);
+        maze.setTimeAttackTag(ctx.timeAttack);
         maze.placeItems();
         player.resetForLevel();
         maze.reveal(player.getRow(), player.getCol());
 
+        time_t floorStart = time(nullptr);
+        int limit = floorTimeLimit(level);
+
         while (!maze.isCleared()) {
             maze.printMaze(player);
-            char dir = read_key();
+
+            char dir;
+            if (ctx.timeAttack) {
+                int remaining = limit - (int)(time(nullptr) - floorStart);
+                if (remaining < 0) remaining = 0;
+                std::cout << " TIME LEFT: " << remaining << "s / " << limit << "s\n";
+                if (remaining <= 0) {
+                    clearTime = player.getElapsed();
+                    return RunOutcome::TIMEOUT;
+                }
+                int k = wait_key(500);
+                if (k < 0) continue;
+                dir = (char)k;
+            } else {
+                dir = read_key();
+            }
+
             ctx.recorded.push_back((int)(unsigned char)dir);
             if (dir == 'e' || dir == 'E') {
                 clearTime = player.getElapsed();
@@ -101,11 +126,15 @@ static RunOutcome runGame(RunContext& ctx, Player& player, long& clearTime) {
     return RunOutcome::COMPLETED;
 }
 
-static void showResults(GameMode mode, bool dark, bool bright,
+static void showResults(GameMode mode, bool dark, bool bright, bool timeAttack,
                         long clearTime, Player& player, bool isReplay) {
-    ScoreBreakdown sc = computeScore(mode, clearTime, dark, bright);
-    std::string mods = dark ? "Darkness (x1.5)"
-                            : (bright ? "Full-bright (x0.5)" : "None (x1.0)");
+    ScoreBreakdown sc = computeScore(mode, clearTime, dark, bright, timeAttack,
+                                     player.getMonstersDefeated(), player.getTotalExp());
+    std::string mods;
+    if (dark)   mods += "Darkness ";
+    if (bright) mods += "Full-bright ";
+    if (timeAttack) mods += "Time ";
+    if (mods.empty()) mods = "None ";
 
     std::cout << CLEAR;
     std::cout << "==================================================\n";
@@ -117,9 +146,13 @@ static void showResults(GameMode mode, bool dark, bool bright,
     std::cout << "  Clear time : " << clearTime << "s\n";
     std::cout << "  Hero Lv    : " << player.getLevel() << "/" << Player::MAX_LEVEL
               << "    ATK " << player.getATK()
-              << "    HP " << player.getHP() << "/" << player.getMaxHP() << "\n\n";
+              << "    HP " << player.getHP() << "/" << player.getMaxHP() << "\n";
+    std::cout << "  Monsters   : " << player.getMonstersDefeated()
+              << "    Total EXP " << player.getTotalExp() << "\n\n";
     std::cout << "  Base (difficulty) : " << sc.base << "\n";
     std::cout << "  Time bonus        : " << sc.timeBonus << "\n";
+    std::cout << "  Monster bonus     : " << sc.monsterBonus << "\n";
+    std::cout << "  EXP bonus         : " << sc.expBonus << "\n";
     std::cout << "  Multiplier        : x" << sc.multiplier << "\n";
     std::cout << "  --------------------------------\n";
     std::cout << "  FINAL SCORE       : " << sc.total << "\n\n";
@@ -129,7 +162,7 @@ static void showResults(GameMode mode, bool dark, bool bright,
 }
 
 static void renderReplayAt(const ReplayRecord& rec, int targetSteps,
-                           int delayMs, bool paused, int totalSteps) {
+                           double speedMult, bool paused, int totalSteps) {
     srand(rec.seed);
     GameMode mode = intToMode(rec.mode);
     bool dark = rec.darkness != 0;
@@ -143,6 +176,7 @@ static void renderReplayAt(const ReplayRecord& rec, int targetSteps,
         maze.setDarkMode(dark);
         maze.setFullBright(bright);
         maze.setSpawnMonsters(rec.monsters != 0);
+        maze.setTimeAttackTag(rec.timeattack != 0);
         maze.setReplayTag(true);
         maze.placeItems();
         player.resetForLevel();
@@ -162,7 +196,7 @@ static void renderReplayAt(const ReplayRecord& rec, int targetSteps,
         if (stop || level == 4) {
             maze.printMaze(player);
             std::cout << " [REPLAY] step " << targetSteps << "/" << totalSteps
-                      << "   speed " << delayMs << "ms"
+                      << "   speed " << speedMult << "x"
                       << (paused ? "   (paused)" : "") << "\n";
             std::cout << " a/d step   w/s speed   space play/pause   q quit\n";
             return;
@@ -171,17 +205,20 @@ static void renderReplayAt(const ReplayRecord& rec, int targetSteps,
 }
 
 static void watchReplay(const ReplayRecord& rec) {
+    const double speeds[5] = { 0.25, 0.5, 1.0, 2.0, 4.0 };
+    const int delays[5] = { 800, 400, 200, 100, 50 };
+
     int total = (int)rec.keys.size();
     int step = 0;
-    int delayMs = 200;
+    int si = 2;
     bool paused = false;
 
     while (true) {
-        renderReplayAt(rec, step, delayMs, paused, total);
+        renderReplayAt(rec, step, speeds[si], paused, total);
 
         int key;
         if (!paused && step < total) {
-            key = wait_key(delayMs);
+            key = wait_key(delays[si]);
             if (key < 0) { ++step; continue; }
         } else {
             key = wait_key(-1);
@@ -192,8 +229,8 @@ static void watchReplay(const ReplayRecord& rec) {
         else if (c == ' ') paused = !paused;
         else if (c == 'a' || c == 'A') { if (step > 0) --step; paused = true; }
         else if (c == 'd' || c == 'D') { if (step < total) ++step; paused = true; }
-        else if (c == 'w' || c == 'W') { delayMs -= 50; if (delayMs < 50) delayMs = 50; }
-        else if (c == 's' || c == 'S') { delayMs += 50; if (delayMs > 1000) delayMs = 1000; }
+        else if (c == 'w' || c == 'W') { if (si < 4) ++si; }
+        else if (c == 's' || c == 'S') { if (si > 0) --si; }
     }
 }
 
@@ -218,7 +255,7 @@ static GameMode chooseDifficulty(bool& chosen) {
     }
 }
 
-static void modeMenu(bool& darkness, bool& fullbright, bool& monsters) {
+static void modeMenu(bool& darkness, bool& fullbright, bool& monsters, bool& timeAttack) {
     while (true) {
         std::cout << CLEAR;
         std::cout << "==============================\n";
@@ -229,14 +266,17 @@ static void modeMenu(bool& darkness, bool& fullbright, bool& monsters) {
         std::cout << "  [2] Full-bright Mode : " << (fullbright ? "ON " : "OFF")
                   << "   (whole map visible, score x0.5)\n";
         std::cout << "  [3] Monster          : " << (monsters ? "ON " : "OFF")
-                  << "   (Lv <= you: defeat for EXP;  Lv > you: death)\n\n";
+                  << "   (HP combat + EXP/HP potions; tougher foes wear you down)\n";
+        std::cout << "  [4] Time Attack      : " << (timeAttack ? "ON " : "OFF")
+                  << "   (each floor has a time limit, score x1.5)\n\n";
         std::cout << "  [B] Back\n\n";
-        std::cout << "Press 1 / 2 / 3 to toggle...";
+        std::cout << "Press 1 / 2 / 3 / 4 to toggle...";
 
         char k = read_key();
         if (k == '1') { darkness = !darkness; if (darkness) fullbright = false; }
         else if (k == '2') { fullbright = !fullbright; if (fullbright) darkness = false; }
         else if (k == '3') { monsters = !monsters; }
+        else if (k == '4') { timeAttack = !timeAttack; }
         else if (isBack(k)) return;
     }
 }
@@ -288,6 +328,7 @@ int main() {
     bool darkness = false;
     bool fullbright = false;
     bool monsters = false;
+    bool timeAttack = false;
 
     while (true) {
         std::cout << CLEAR;
@@ -311,18 +352,25 @@ int main() {
             ctx.darkness = darkness;
             ctx.fullbright = fullbright;
             ctx.monsters = monsters;
+            ctx.timeAttack = timeAttack;
             ctx.seed = makeSeed();
 
             Player player;
             long clearTime = 0;
             RunOutcome outcome = runGame(ctx, player, clearTime);
 
-            if (outcome == RunOutcome::DIED) {
+            if (outcome == RunOutcome::DIED || outcome == RunOutcome::TIMEOUT) {
                 std::cout << CLEAR;
                 std::cout << "==================================================\n";
-                std::cout << "                   Y O U   D I E D\n";
-                std::cout << "==================================================\n\n";
-                std::cout << "  A monster was too strong this time.\n";
+                if (outcome == RunOutcome::TIMEOUT) {
+                    std::cout << "                   T I M E ' S   U P\n";
+                    std::cout << "==================================================\n\n";
+                    std::cout << "  You ran out of time on this floor.\n";
+                } else {
+                    std::cout << "                   Y O U   D I E D\n";
+                    std::cout << "==================================================\n\n";
+                    std::cout << "  A monster wore you down this time.\n";
+                }
                 std::cout << "  Hero Lv " << player.getLevel()
                           << "    survived " << clearTime << "s\n\n";
                 std::cout << "  Press any key to return to the menu\n";
@@ -336,22 +384,25 @@ int main() {
                     if (k == '\r' || k == '\n' || k == ' ') break;
                 }
 
-                ScoreBreakdown sc = computeScore(mode, clearTime, darkness, fullbright);
+                ScoreBreakdown sc = computeScore(mode, clearTime, darkness, fullbright,
+                                                 timeAttack, player.getMonstersDefeated(),
+                                                 player.getTotalExp());
                 ReplayRecord rr;
                 rr.seed = ctx.seed;
                 rr.mode = (int)mode;
                 rr.darkness = darkness ? 1 : 0;
                 rr.fullbright = fullbright ? 1 : 0;
                 rr.monsters = monsters ? 1 : 0;
+                rr.timeattack = timeAttack ? 1 : 0;
                 rr.clearTime = clearTime;
                 rr.score = sc.total;
                 rr.keys = ctx.recorded;
                 saveReplay(rr, REPLAY_DIR);
 
-                showResults(mode, darkness, fullbright, clearTime, player, false);
+                showResults(mode, darkness, fullbright, timeAttack, clearTime, player, false);
             }
         } else if (c == '2') {
-            modeMenu(darkness, fullbright, monsters);
+            modeMenu(darkness, fullbright, monsters, timeAttack);
         } else if (c == '3') {
             replayMenu();
         } else if (c == '4' || c == 'q' || c == 'Q') {

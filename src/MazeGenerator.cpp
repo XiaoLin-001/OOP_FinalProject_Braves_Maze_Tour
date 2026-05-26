@@ -5,9 +5,6 @@
 
 namespace MazeGen {
 
-// ---- Union-Find (Disjoint Set Union) ---------------------------------------
-// Tracks which rooms are already connected. With path compression + union by
-// rank, find/union are effectively O(1) amortised.
 struct UnionFind {
     std::vector<int> parent;
     std::vector<int> rank;
@@ -18,13 +15,12 @@ struct UnionFind {
 
     int find(int x) {
         while (parent[x] != x) {
-            parent[x] = parent[parent[x]];   // path compression
+            parent[x] = parent[parent[x]];
             x = parent[x];
         }
         return x;
     }
 
-    // Merge the sets of a and b. Returns false if they were already together.
     bool unite(int a, int b) {
         int ra = find(a), rb = find(b);
         if (ra == rb) return false;
@@ -35,7 +31,6 @@ struct UnionFind {
     }
 };
 
-// Shuffle helper (Fisher-Yates) so generation differs every run.
 template <typename T>
 static void shuffleVec(std::vector<T>& v) {
     for (size_t i = v.size(); i > 1; --i) {
@@ -44,11 +39,9 @@ static void shuffleVec(std::vector<T>& v) {
     }
 }
 
-// ---- Recursive Backtracker (DFS) -------------------------------------------
-
 std::vector<std::vector<int>> generateDFS(int n) {
-    std::vector<std::vector<int>> g(n, std::vector<int>(n, 1));   // all walls
-    int m = (n - 1) / 2;                                          // rooms per side
+    std::vector<std::vector<int>> g(n, std::vector<int>(n, 1));
+    int m = (n - 1) / 2;
 
     std::vector<std::vector<bool>> visited(m, std::vector<bool>(m, false));
     std::vector<std::pair<int, int>> stack;
@@ -74,7 +67,6 @@ std::vector<std::vector<int>> generateDFS(int n) {
             if (nr < 0 || nr >= m || nc < 0 || nc >= m || visited[nr][nc])
                 continue;
 
-            // Knock down the wall between the two rooms, then move there.
             int gr = 2 * rr + 1, gc = 2 * cc + 1;
             int ngr = 2 * nr + 1, ngc = 2 * nc + 1;
             g[(gr + ngr) / 2][(gc + ngc) / 2] = 0;
@@ -85,26 +77,22 @@ std::vector<std::vector<int>> generateDFS(int n) {
             advanced = true;
             break;
         }
-        if (!advanced) stack.pop_back();   // dead end -> backtrack
+        if (!advanced) stack.pop_back();
     }
 
-    g[n - 2][n - 2] = 2;   // Goal at the far corner room
+    g[n - 2][n - 2] = 2;
     return g;
 }
-
-// ---- Randomized Kruskal's --------------------------------------------------
 
 std::vector<std::vector<int>> generateKruskal(int n) {
     std::vector<std::vector<int>> g(n, std::vector<int>(n, 1));
     int m = (n - 1) / 2;
 
-    // Open every room cell first; walls between them start closed.
     for (int rr = 0; rr < m; ++rr)
         for (int cc = 0; cc < m; ++cc)
             g[2 * rr + 1][2 * cc + 1] = 0;
 
-    // Every wall between two adjacent rooms is a candidate edge.
-    struct Edge { int r, c, d; };          // room (r,c); d: 0 = right, 1 = down
+    struct Edge { int r, c, d; };
     std::vector<Edge> edges;
     for (int rr = 0; rr < m; ++rr) {
         for (int cc = 0; cc < m; ++cc) {
@@ -122,7 +110,6 @@ std::vector<std::vector<int>> generateKruskal(int n) {
         int a = e.r * m + e.c;
         int b = nr * m + nc;
 
-        // Only open the wall if it joins two not-yet-connected regions.
         if (uf.unite(a, b)) {
             int gr = 2 * e.r + 1, gc = 2 * e.c + 1;
             int ngr = 2 * nr + 1, ngc = 2 * nc + 1;
@@ -134,4 +121,4 @@ std::vector<std::vector<int>> generateKruskal(int n) {
     return g;
 }
 
-} // namespace MazeGen
+}
