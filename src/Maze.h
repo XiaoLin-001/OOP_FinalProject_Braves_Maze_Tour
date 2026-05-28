@@ -26,6 +26,11 @@ private:
     bool timeAttackTag;
     std::string message;
 
+    int animTick;
+    bool fxActive;
+    int fxRow, fxCol;
+    std::string fxColor;
+
     std::vector<std::pair<int, int>> toEmpty;
 
     void buildFromGrid(const std::vector<std::vector<int>>& nums);
@@ -55,6 +60,10 @@ public:
     void commit();
 
     void reveal(int r, int c);
+
+    void setAnimTick(int t) { animTick = t; }
+    void playCellFx(Player& player, int r, int c, const char* color,
+                    int blinks, int onMs, int offMs);
 
     void printMaze(Player& player);
 

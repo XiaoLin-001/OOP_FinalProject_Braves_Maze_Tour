@@ -23,6 +23,23 @@
       }
       return _kbhit() ? _getch() : -1;
   }
+  void sleep_ms(int ms) { if (ms > 0) Sleep(ms); }
+  int read_nav() {
+      int c = _getch();
+      if (c == 0 || c == 224) {
+          int c2 = _getch();
+          switch (c2) {
+              case 72: return NAV_UP;
+              case 80: return NAV_DOWN;
+              case 75: return NAV_LEFT;
+              case 77: return NAV_RIGHT;
+          }
+          return -1;
+      }
+      if (c == '\r' || c == '\n') return NAV_ENTER;
+      if (c == 27) return NAV_BACK;
+      return c;
+  }
 #else
   #include <termios.h>
   #include <unistd.h>
@@ -64,6 +81,57 @@
           char c;
           if (read(STDIN_FILENO, &c, 1) > 0) result = (unsigned char)c;
       }
+      tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+      return result;
+  }
+  void sleep_ms(int ms) {
+      if (ms > 0) usleep(ms * 1000);
+  }
+  int read_nav() {
+      struct termios oldt, newt;
+      tcgetattr(STDIN_FILENO, &oldt);
+      newt = oldt;
+      newt.c_lflag &= ~(ICANON | ECHO);
+      tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+      int result = NAV_BACK;
+      char c = 0;
+      if (read(STDIN_FILENO, &c, 1) <= 0) {
+          tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+          return NAV_BACK;
+      }
+
+      if (c == 27) {
+          fd_set set;
+          FD_ZERO(&set);
+          FD_SET(STDIN_FILENO, &set);
+          struct timeval tv;
+          tv.tv_sec = 0;
+          tv.tv_usec = 20000;
+          if (select(STDIN_FILENO + 1, &set, nullptr, nullptr, &tv) > 0) {
+              char b1 = 0, b2 = 0;
+              read(STDIN_FILENO, &b1, 1);
+              if (b1 == '[' || b1 == 'O') {
+                  read(STDIN_FILENO, &b2, 1);
+                  switch (b2) {
+                      case 'A': result = NAV_UP;    break;
+                      case 'B': result = NAV_DOWN;  break;
+                      case 'C': result = NAV_RIGHT; break;
+                      case 'D': result = NAV_LEFT;  break;
+                      default:  result = NAV_BACK;  break;
+                  }
+              } else {
+                  result = NAV_BACK;
+              }
+          } else {
+              result = NAV_BACK;
+          }
+      } else if (c == '\n' || c == '\r') {
+          result = NAV_ENTER;
+      } else {
+          result = (unsigned char)c;
+      }
+
       tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
       return result;
   }

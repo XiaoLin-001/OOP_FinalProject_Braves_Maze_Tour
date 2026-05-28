@@ -1,6 +1,7 @@
 #include "Block.h"
 #include "Player.h"
 #include "Maze.h"
+#include "Sound.h"
 
 #include <cstdlib>
 #include <string>
@@ -72,6 +73,8 @@ Key::Key() {
 }
 
 bool Key::player_touched(Player& player, Maze& maze, int row, int col) {
+    maze.playCellFx(player, row, col, "\033[7m", 2, 55, 45);
+    Sound::pickup();
     player.collectKey();
     maze.setMessage("You picked up a Key!");
     maze.markEmpty(row, col);
@@ -110,17 +113,29 @@ Portal::Portal() : partnerRow(1), partnerCol(1) {
     fill(" @ ",
          "@O@",
          " @ ");
+    symbol2.assign(3, std::vector<char>(3, ' '));
+    const char* rows[3] = { " * ", "*O*", " * " };
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            symbol2[i][j] = rows[i][j];
+}
+
+char Portal::renderAt(int sr, int sc, int tick) const {
+    if ((tick / 2) % 2 == 1) return symbol2[sr][sc];
+    return symbol[sr][sc];
 }
 
 bool Portal::player_touched(Player& player, Maze& maze, int, int) {
+    Sound::portal();
     maze.setMessage("Whoosh! A portal teleports you.");
     player.setPos(partnerRow, partnerCol);
     return true;
 }
 
-static const int MON_HP_PER_LEVEL  = 10;
-static const int MON_DMG_PER_LEVEL = 3;
+static const int MON_HP_PER_LEVEL  = 20;
+static const int MON_DMG_PER_LEVEL = 5;
 static const int HP_POTION_HEAL    = 40;
+static const int MON_UNBEATABLE_GAP = 3;
 
 Monster::Monster(int lv) {
     type = BlockType::MONSTER;
@@ -132,8 +147,21 @@ Monster::Monster(int lv) {
 }
 
 bool Monster::player_touched(Player& player, Maze& maze, int row, int col) {
+    maze.playCellFx(player, row, col, "\033[41m", 3, 55, 45);
+
+    if (level - player.getLevel() >= MON_UNBEATABLE_GAP) {
+        Sound::unbeatable();
+        int dmg = level * MON_DMG_PER_LEVEL;
+        player.takeDamage(dmg);
+        maze.setMessage("Lv" + std::to_string(level) +
+                        " monster is too strong to defeat (3+ levels above you)!"
+                        "  -" + std::to_string(dmg) + " HP -- go around it!");
+        return false;
+    }
+
     hp -= player.getATK();
     if (hp <= 0) {
+        Sound::pickup();
         int gained = 40 + level * 10;
         player.gainEXP(gained);
         player.defeatMonster();
@@ -143,6 +171,7 @@ bool Monster::player_touched(Player& player, Maze& maze, int row, int col) {
         player.setPos(row, col);
         return true;
     }
+    Sound::hit();
     int dmg = level * MON_DMG_PER_LEVEL;
     player.takeDamage(dmg);
     maze.setMessage("Lv" + std::to_string(level) + " monster (HP " +
@@ -158,6 +187,8 @@ ExpPotion::ExpPotion() {
 }
 
 bool ExpPotion::player_touched(Player& player, Maze& maze, int row, int col) {
+    maze.playCellFx(player, row, col, "\033[7m", 2, 55, 45);
+    Sound::potion();
     int gain = 100;
     player.gainEXP(gain);
     maze.setMessage("EXP potion!  +" + std::to_string(gain) + " EXP");
@@ -174,6 +205,8 @@ HpPotion::HpPotion() {
 }
 
 bool HpPotion::player_touched(Player& player, Maze& maze, int row, int col) {
+    maze.playCellFx(player, row, col, "\033[7m", 2, 55, 45);
+    Sound::potion();
     player.heal(HP_POTION_HEAL);
     maze.setMessage("HP potion!  +" + std::to_string(HP_POTION_HEAL) + " HP");
     maze.markEmpty(row, col);

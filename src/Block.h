@@ -26,6 +26,7 @@ public:
     virtual bool player_touched(Player& player, Maze& maze, int row, int col);
 
     char render(int sr, int sc) const { return symbol[sr][sc]; }
+    virtual char renderAt(int sr, int sc, int tick) const { (void)tick; return symbol[sr][sc]; }
 
     bool getVisible() const { return isVisible; }
     void setVisible(bool v) { isVisible = v; }
@@ -73,9 +74,11 @@ public:
 class Portal : public Block {
 private:
     int partnerRow, partnerCol;
+    std::vector<std::vector<char>> symbol2;
 public:
     Portal();
     void setPartner(int r, int c) { partnerRow = r; partnerCol = c; }
+    char renderAt(int sr, int sc, int tick) const override;
     bool player_touched(Player& player, Maze& maze, int row, int col) override;
 };
 

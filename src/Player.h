@@ -6,8 +6,12 @@
 
 class Maze;
 
+enum { NAV_UP = 1001, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_ENTER, NAV_BACK };
+
 char read_key();
 int wait_key(int ms);
+int read_nav();
+void sleep_ms(int ms);
 
 class Player {
 private:

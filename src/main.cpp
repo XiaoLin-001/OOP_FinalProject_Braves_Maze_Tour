@@ -3,8 +3,10 @@
 #include "Block.h"
 #include "Score.h"
 #include "Replay.h"
+#include "Sound.h"
 
 #include <iostream>
+#include <sstream>
 #include <cstdlib>
 #include <ctime>
 #include <string>
@@ -43,10 +45,6 @@ static int floorTimeLimit(int level) {
     return 45 + 30 * level;
 }
 
-static bool isBack(char k) {
-    return k == 'b' || k == 'B' || k == 27;
-}
-
 static GameMode intToMode(int m) {
     if (m == 1) return GameMode::NORMAL;
     if (m == 2) return GameMode::HARD;
@@ -79,24 +77,28 @@ static RunOutcome runGame(RunContext& ctx, Player& player, long& clearTime) {
         time_t floorStart = time(nullptr);
         int limit = floorTimeLimit(level);
 
+        int animTick = 0;
+        const int FRAME_MS = 180;
+
         while (!maze.isCleared()) {
+            maze.setAnimTick(animTick);
             maze.printMaze(player);
 
-            char dir;
             if (ctx.timeAttack) {
                 int remaining = limit - (int)(time(nullptr) - floorStart);
                 if (remaining < 0) remaining = 0;
                 std::cout << " TIME LEFT: " << remaining << "s / " << limit << "s\n";
+                std::cout.flush();
                 if (remaining <= 0) {
                     clearTime = player.getElapsed();
                     return RunOutcome::TIMEOUT;
                 }
-                int k = wait_key(500);
-                if (k < 0) continue;
-                dir = (char)k;
-            } else {
-                dir = read_key();
             }
+
+            int k = wait_key(FRAME_MS);
+            ++animTick;
+            if (k < 0) continue;
+            char dir = (char)k;
 
             ctx.recorded.push_back((int)(unsigned char)dir);
             if (dir == 'e' || dir == 'E') {
@@ -104,7 +106,9 @@ static RunOutcome runGame(RunContext& ctx, Player& player, long& clearTime) {
                 return RunOutcome::ABORTED;
             }
             maze.setMessage("");
+            int beforeLv = player.getLevel();
             bool moved = player.move(dir, maze);
+            if (player.getLevel() > beforeLv) Sound::levelUp();
             if (player.isDead()) {
                 maze.printMaze(player);
                 clearTime = player.getElapsed();
@@ -213,6 +217,7 @@ static void watchReplay(const ReplayRecord& rec) {
     int si = 2;
     bool paused = false;
 
+    Sound::setMuted(true);
     while (true) {
         renderReplayAt(rec, step, speeds[si], paused, total);
 
@@ -225,7 +230,7 @@ static void watchReplay(const ReplayRecord& rec) {
         }
 
         char c = (char)key;
-        if (c == 'q' || c == 'Q' || c == 'e' || c == 'E' || key == 27) return;
+        if (c == 'q' || c == 'Q' || c == 'e' || c == 'E' || key == 27) { Sound::setMuted(false); return; }
         else if (c == ' ') paused = !paused;
         else if (c == 'a' || c == 'A') { if (step > 0) --step; paused = true; }
         else if (c == 'd' || c == 'D') { if (step < total) ++step; paused = true; }
@@ -234,87 +239,145 @@ static void watchReplay(const ReplayRecord& rec) {
     }
 }
 
-static GameMode chooseDifficulty(bool& chosen) {
-    chosen = false;
-    while (true) {
-        std::cout << CLEAR;
-        std::cout << "==============================\n";
-        std::cout << "        Play - Difficulty\n";
-        std::cout << "==============================\n\n";
-        std::cout << "  [1] Easy   - fixed tutorial maze\n";
-        std::cout << "  [2] Normal - DFS generated maze\n";
-        std::cout << "  [3] Hard   - Kruskal generated maze\n\n";
-        std::cout << "  [B] Back\n\n";
-        std::cout << "Select...";
+static void drawMenu(const std::string& title, const std::vector<std::string>& rows,
+                     int sel, const std::string& hint, bool pulse) {
+    const int W = 52;
+    std::string bar(W, '=');
+    std::ostringstream b;
+    b << "\033[H";
+    b << "\033[96m." << bar << ".\033[0m\033[K\n";
 
-        char k = read_key();
-        if (k == '1') { chosen = true; return GameMode::EASY; }
-        if (k == '2') { chosen = true; return GameMode::NORMAL; }
-        if (k == '3') { chosen = true; return GameMode::HARD; }
-        if (isBack(k)) return GameMode::EASY;
+    int t = (int)title.size();
+    if (t > W) t = W;
+    int lpad = (W - t) / 2;
+    int rpad = W - t - lpad;
+    b << "\033[96m|\033[0m" << std::string(lpad, ' ')
+      << "\033[1;95m" << title.substr(0, t) << "\033[0m"
+      << std::string(rpad, ' ') << "\033[96m|\033[0m\033[K\n";
+    b << "\033[96m'" << bar << "'\033[0m\033[K\n";
+    b << "\033[K\n";
+
+    for (int i = 0; i < (int)rows.size(); ++i) {
+        std::string line = (i == sel ? "   > " : "     ") + rows[i];
+        if ((int)line.size() > W) line = line.substr(0, W);
+        line += std::string(W - (int)line.size(), ' ');
+        b << " ";
+        if (i == sel) b << (pulse ? "\033[1;30;107m" : "\033[1;30;106m") << line << "\033[0m";
+        else          b << "\033[37m" << line << "\033[0m";
+        b << "\033[K\n";
+    }
+
+    b << "\033[K\n";
+    b << "\033[90m   " << hint << "\033[0m\033[K\n";
+    b << "\033[J";
+    std::cout << b.str();
+    std::cout.flush();
+}
+
+static int runMenu(const std::string& title, const std::vector<std::string>& rows,
+                   int& sel, const std::string& hint) {
+    int n = (int)rows.size();
+    bool pulse = false;
+    while (true) {
+        drawMenu(title, rows, sel, hint, pulse);
+        if (pulse) { sleep_ms(55); pulse = false; continue; }
+        int k = read_nav();
+        if (n > 0 && k == NAV_UP)        { sel = (sel + n - 1) % n; Sound::move(); pulse = true; }
+        else if (n > 0 && k == NAV_DOWN) { sel = (sel + 1) % n;     Sound::move(); pulse = true; }
+        else return k;
     }
 }
 
-static void modeMenu(bool& darkness, bool& fullbright, bool& monsters, bool& timeAttack) {
+static GameMode chooseDifficulty(bool& chosen) {
+    chosen = false;
+    const GameMode modes[3] = { GameMode::EASY, GameMode::NORMAL, GameMode::HARD };
+    std::vector<std::string> rows;
+    rows.push_back("Easy    -  fixed tutorial maze");
+    rows.push_back("Normal  -  DFS generated maze");
+    rows.push_back("Hard    -  Kruskal generated maze");
+    int sel = 0;
     while (true) {
-        std::cout << CLEAR;
-        std::cout << "==============================\n";
-        std::cout << "       Mode - Extra Modules\n";
-        std::cout << "==============================\n\n";
-        std::cout << "  [1] Darkness Mode    : " << (darkness ? "ON " : "OFF")
-                  << "   (only 8 cells lit, no memory, score x1.5)\n";
-        std::cout << "  [2] Full-bright Mode : " << (fullbright ? "ON " : "OFF")
-                  << "   (whole map visible, score x0.5)\n";
-        std::cout << "  [3] Monster          : " << (monsters ? "ON " : "OFF")
-                  << "   (HP combat + EXP/HP potions; tougher foes wear you down)\n";
-        std::cout << "  [4] Time Attack      : " << (timeAttack ? "ON " : "OFF")
-                  << "   (each floor has a time limit, score x1.5)\n\n";
-        std::cout << "  [B] Back\n\n";
-        std::cout << "Press 1 / 2 / 3 / 4 to toggle...";
+        int k = runMenu("P L A Y   -   C H O O S E   M A Z E", rows, sel,
+                        "Up/Down move    Enter start    Esc back");
+        if (k == NAV_ENTER || k == NAV_RIGHT) { Sound::select(); chosen = true; return modes[sel]; }
+        if (k == NAV_BACK || k == NAV_LEFT)   { Sound::back(); return GameMode::EASY; }
+        if (k >= '1' && k <= '3') { Sound::select(); chosen = true; return modes[k - '1']; }
+    }
+}
 
-        char k = read_key();
-        if (k == '1') { darkness = !darkness; if (darkness) fullbright = false; }
-        else if (k == '2') { fullbright = !fullbright; if (fullbright) darkness = false; }
-        else if (k == '3') { monsters = !monsters; }
-        else if (k == '4') { timeAttack = !timeAttack; }
-        else if (isBack(k)) return;
+static void toggleModule(int idx, bool& darkness, bool& fullbright,
+                         bool& monsters, bool& timeAttack) {
+    if (idx == 0)      { darkness = !darkness; if (darkness) fullbright = false; }
+    else if (idx == 1) { fullbright = !fullbright; if (fullbright) darkness = false; }
+    else if (idx == 2) { monsters = !monsters; }
+    else if (idx == 3) { timeAttack = !timeAttack; }
+}
+
+static void modeMenu(bool& darkness, bool& fullbright, bool& monsters, bool& timeAttack) {
+    int sel = 0;
+    const char* labels[4] = { "Darkness", "Full-bright", "Monster", "Time Attack" };
+    const char* notes[4]  = { "x1.5", "x0.5", "combat+potions", "x1.5" };
+    while (true) {
+        bool states[4] = { darkness, fullbright, monsters, timeAttack };
+        std::vector<std::string> rows;
+        for (int i = 0; i < 4; ++i) {
+            std::string s = labels[i];
+            while (s.size() < 13) s += ' ';
+            s += states[i] ? "[ON] " : "[OFF]";
+            s += "   ";
+            s += notes[i];
+            rows.push_back(s);
+        }
+        int k = runMenu("M O D E   -   E X T R A   M O D U L E S", rows, sel,
+                        "Up/Down move    Enter/Space/Left/Right toggle    Esc back");
+        if (k == NAV_BACK) { Sound::back(); return; }
+        else if (k == NAV_ENTER || k == NAV_LEFT || k == NAV_RIGHT || k == ' ') {
+            toggleModule(sel, darkness, fullbright, monsters, timeAttack);
+            bool now[4] = { darkness, fullbright, monsters, timeAttack };
+            Sound::toggle(now[sel]);
+        } else if (k >= '1' && k <= '4') {
+            int idx = k - '1';
+            toggleModule(idx, darkness, fullbright, monsters, timeAttack);
+            bool now[4] = { darkness, fullbright, monsters, timeAttack };
+            Sound::toggle(now[idx]);
+        }
     }
 }
 
 static void replayMenu() {
+    int sel = 0;
     while (true) {
         std::vector<ReplayRecord> recs = loadReplays(REPLAY_DIR);
         std::reverse(recs.begin(), recs.end());
 
-        std::cout << CLEAR;
-        std::cout << "==============================\n";
-        std::cout << "            Replay\n";
-        std::cout << "==============================\n\n";
+        int shown = (int)(recs.size() < 9 ? recs.size() : 9);
+        if (sel >= shown) sel = shown > 0 ? shown - 1 : 0;
 
-        if (recs.empty()) {
-            std::cout << "  (no replays saved yet)\n\n";
+        std::vector<std::string> rows;
+        if (shown == 0) {
+            rows.push_back("(no replays saved yet)");
         } else {
-            size_t shown = recs.size() < 9 ? recs.size() : 9;
-            for (size_t i = 0; i < shown; ++i) {
+            for (int i = 0; i < shown; ++i) {
                 const ReplayRecord& r = recs[i];
                 std::string mods = r.darkness ? "Dark" : (r.fullbright ? "Bright" : "-");
-                std::cout << "  [" << (i + 1) << "] " << r.name << "\n"
-                          << "       " << modeName(intToMode(r.mode))
-                          << "   time " << r.clearTime << "s"
-                          << "   score " << r.score
-                          << "   mod " << mods << "\n";
+                std::string s = modeName(intToMode(r.mode));
+                while (s.size() < 7) s += ' ';
+                s += "  " + std::to_string(r.clearTime) + "s";
+                s += "   sc " + std::to_string(r.score);
+                s += "   " + mods;
+                rows.push_back(s);
             }
-            std::cout << "\n";
         }
 
-        std::cout << "  [B] Back\n\n";
-        std::cout << "Select a number to watch...";
-
-        char k = read_key();
-        if (isBack(k)) return;
-        if (k >= '1' && k <= '9') {
-            size_t idx = (size_t)(k - '1');
-            if (idx < recs.size()) watchReplay(recs[idx]);
+        int k = runMenu("R E P L A Y", rows, sel,
+                        "Up/Down move    Enter watch    Esc back");
+        if (k == NAV_BACK || k == NAV_LEFT) { Sound::back(); return; }
+        else if (shown > 0 && (k == NAV_ENTER || k == NAV_RIGHT)) {
+            Sound::select();
+            watchReplay(recs[sel]);
+        } else if (k >= '1' && k <= '9') {
+            int idx = k - '1';
+            if (idx < shown) { Sound::select(); watchReplay(recs[idx]); }
         }
     }
 }
@@ -330,19 +393,26 @@ int main() {
     bool monsters = false;
     bool timeAttack = false;
 
+    std::cout << CLEAR;
+    int sel = 0;
     while (true) {
-        std::cout << CLEAR;
-        std::cout << "==============================\n";
-        std::cout << "       Brave's Maze Tour\n";
-        std::cout << "==============================\n\n";
-        std::cout << "  [1] Play\n";
-        std::cout << "  [2] Mode\n";
-        std::cout << "  [3] Replay\n";
-        std::cout << "  [4] Quit\n\n";
-        std::cout << "Select 1-4...";
+        std::vector<std::string> items;
+        items.push_back("Play");
+        items.push_back("Mode");
+        items.push_back("Replay");
+        items.push_back("Quit");
 
-        char c = read_key();
-        if (c == '1') {
+        int k = runMenu("B R A V E ' S   M A Z E   T O U R", items, sel,
+                        "Up/Down move    Enter select");
+
+        int action = -1;
+        if (k == NAV_ENTER || k == NAV_RIGHT) action = sel;
+        else if (k >= '1' && k <= '4')        action = k - '1';
+        else if (k == 'q' || k == 'Q')        action = 3;
+        else continue;
+
+        if (action == 0) {
+            Sound::select();
             bool chosen = false;
             GameMode mode = chooseDifficulty(chosen);
             if (!chosen) continue;
@@ -360,6 +430,8 @@ int main() {
             RunOutcome outcome = runGame(ctx, player, clearTime);
 
             if (outcome == RunOutcome::DIED || outcome == RunOutcome::TIMEOUT) {
+                if (outcome == RunOutcome::TIMEOUT) Sound::timeout();
+                else                                Sound::lose();
                 std::cout << CLEAR;
                 std::cout << "==================================================\n";
                 if (outcome == RunOutcome::TIMEOUT) {
@@ -376,6 +448,7 @@ int main() {
                 std::cout << "  Press any key to return to the menu\n";
                 read_key();
             } else if (outcome == RunOutcome::COMPLETED) {
+                Sound::win();
                 std::cout << CLEAR;
                 std::cout << "*** Floor 4 cleared -- you conquered the maze! ***\n\n";
                 std::cout << "Press Enter to see your results...";
@@ -401,11 +474,14 @@ int main() {
 
                 showResults(mode, darkness, fullbright, timeAttack, clearTime, player, false);
             }
-        } else if (c == '2') {
+        } else if (action == 1) {
+            Sound::select();
             modeMenu(darkness, fullbright, monsters, timeAttack);
-        } else if (c == '3') {
+        } else if (action == 2) {
+            Sound::select();
             replayMenu();
-        } else if (c == '4' || c == 'q' || c == 'Q') {
+        } else if (action == 3) {
+            Sound::select();
             std::cout << CLEAR;
             std::cout << "Farewell, brave one!\n";
             return 0;

@@ -18,7 +18,8 @@ Maze::Maze(int lv, GameMode mode)
     : nRow(0), nCol(0), nKey(lv), level(lv),
       useMovableGoal(lv >= 3), goalRow(0), goalCol(0),
       levelCleared(false), darkMode(false), fullBright(false), replayTag(false),
-      spawnMonsters(false), timeAttackTag(false), message("") {
+      spawnMonsters(false), timeAttackTag(false), message(""),
+      animTick(0), fxActive(false), fxRow(-1), fxCol(-1), fxColor("") {
 
     std::vector<std::vector<int>> nums;
 
@@ -319,7 +320,10 @@ static std::string makeBar(int cur, int max, int width, const char* color) {
 }
 
 void Maze::printMaze(Player& player) {
-    std::cout << "\033[2J\033[1;1H";
+    std::ostringstream buf;
+    buf << "\033[H";
+
+    const char* EOL = "\033[K\n";
 
     const int VIEW_ROWS = 11;
     const int VIEW_COLS = 17;
@@ -349,9 +353,13 @@ void Maze::printMaze(Player& player) {
                     lit = grid[r][c]->getVisible();
                 }
 
+                bool isFx = (fxActive && r == fxRow && c == fxCol);
+                if (isFx) lit = true;
+
                 bool isPlayer = (r == player.getRow() && c == player.getCol());
                 const char* col;
-                if (isPlayer)      col = "\033[1;92m";
+                if (isFx)          col = fxColor.c_str();
+                else if (isPlayer) col = "\033[1;92m";
                 else if (!lit)     col = "\033[90m";
                 else               col = colorFor(grid[r][c]->getType());
 
@@ -361,7 +369,7 @@ void Maze::printMaze(Player& player) {
                     if (isPlayer) {
                         ch = player.render(sr, sc);
                     } else if (lit) {
-                        ch = grid[r][c]->render(sr, sc);
+                        ch = grid[r][c]->renderAt(sr, sc, animTick);
                     } else {
                         ch = (sr == 1 && sc == 1) ? '?' : ' ';
                     }
@@ -369,28 +377,50 @@ void Maze::printMaze(Player& player) {
                 }
                 out += RESET;
             }
-            std::cout << out << "\n";
+            buf << out << EOL;
         }
     }
 
-    std::cout << "\n";
-    std::cout << "+--------------------------------------------------+\n";
-    std::cout << " Floor " << level << "/4"
-              << "    Keys " << player.getKeyCollected() << "/" << nKey
-              << "    Time " << player.getElapsed() << "s"
-              << (darkMode ? "    [Dark]" : "")
-              << (fullBright ? "    [Bright]" : "")
-              << (timeAttackTag ? "    [Time]" : "")
-              << (replayTag ? "    [REPLAY]" : "") << "\n";
-    std::cout << " Lv " << player.getLevel() << "/" << Player::MAX_LEVEL
-              << "    ATK " << player.getATK() << "\n";
-    std::cout << " HP  " << makeBar(player.getHP(), player.getMaxHP(), 12, "\033[91m")
-              << " " << player.getHP() << "/" << player.getMaxHP() << "\n";
-    std::cout << " EXP " << makeBar(player.getEXP(), player.getExpToNext(), 12, "\033[92m")
-              << " " << player.getEXP() << "/" << player.getExpToNext() << "\n";
-    std::cout << "+--------------------------------------------------+\n";
+    buf << EOL;
+    buf << "+--------------------------------------------------+" << EOL;
+    buf << " Floor " << level << "/4"
+        << "    Keys " << player.getKeyCollected() << "/" << nKey
+        << "    Time " << player.getElapsed() << "s"
+        << (darkMode ? "    [Dark]" : "")
+        << (fullBright ? "    [Bright]" : "")
+        << (timeAttackTag ? "    [Time]" : "")
+        << (replayTag ? "    [REPLAY]" : "") << EOL;
+    buf << " Lv " << player.getLevel() << "/" << Player::MAX_LEVEL
+        << "    ATK " << player.getATK() << EOL;
+    buf << " HP  " << makeBar(player.getHP(), player.getMaxHP(), 12, "\033[91m")
+        << " " << player.getHP() << "/" << player.getMaxHP() << EOL;
+    buf << " EXP " << makeBar(player.getEXP(), player.getExpToNext(), 12, "\033[92m")
+        << " " << player.getEXP() << "/" << player.getExpToNext() << EOL;
+    buf << "+--------------------------------------------------+" << EOL;
     if (!replayTag)
-        std::cout << " Controls:  W/A/S/D = move    E = exit\n";
+        buf << " Controls:  W/A/S/D = move    E = exit" << EOL;
     if (!message.empty())
-        std::cout << " >> " << message << "\n";
+        buf << " >> " << message << EOL;
+
+    buf << "\033[J";
+
+    std::cout << buf.str();
+    std::cout.flush();
+}
+
+void Maze::playCellFx(Player& player, int r, int c, const char* color,
+                      int blinks, int onMs, int offMs) {
+    if (replayTag) return;
+    fxRow = r;
+    fxCol = c;
+    fxColor = color;
+    for (int i = 0; i < blinks; ++i) {
+        fxActive = true;
+        printMaze(player);
+        sleep_ms(onMs);
+        fxActive = false;
+        printMaze(player);
+        sleep_ms(offMs);
+    }
+    fxActive = false;
 }
