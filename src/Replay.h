@@ -10,6 +10,7 @@ struct ReplayRecord {
     int darkness;
     int fullbright;
     int monsters;
+    int timeattack;
     long clearTime;
     int score;
     std::vector<int> keys;

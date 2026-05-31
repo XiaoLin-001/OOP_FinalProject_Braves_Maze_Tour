@@ -10,24 +10,20 @@
 #include <utility>
 #include <queue>
 
-// Side length used for each floor (must be odd for the generators).
-// Floor 1->9, 2->13, 3->17, 4->21 (deeper floors are bigger).
 static int sizeForLevel(int level) {
     return 5 + 4 * level;
 }
-
-// ---- construction -----------------------------------------------------------
 
 Maze::Maze(int lv, GameMode mode)
     : nRow(0), nCol(0), nKey(lv), level(lv),
       useMovableGoal(lv >= 3), goalRow(0), goalCol(0),
       levelCleared(false), darkMode(false), fullBright(false), replayTag(false),
-      spawnMonsters(false), message("") {
+      spawnMonsters(false), timeAttackTag(false), message(""),
+      animTick(0), fxActive(false), fxRow(-1), fxCol(-1), fxColor("") {
 
     std::vector<std::vector<int>> nums;
 
     if (mode == GameMode::EASY) {
-        // Fixed tutorial maze read from file.
         std::string filename = "maps/maze_" + std::to_string(lv) + ".txt";
         std::ifstream fin(filename.c_str());
         if (!fin) {
@@ -44,14 +40,13 @@ Maze::Maze(int lv, GameMode mode)
         }
     } else if (mode == GameMode::NORMAL) {
         nums = MazeGen::generateDFS(sizeForLevel(lv));
-    } else { // HARD
+    } else {
         nums = MazeGen::generateKruskal(sizeForLevel(lv));
     }
 
     buildFromGrid(nums);
 }
 
-// Turn the integer grid (0=Empty, 1=Wall, 2=Goal) into Block objects.
 void Maze::buildFromGrid(const std::vector<std::vector<int>>& nums) {
     nRow = (int)nums.size();
     nCol = nRow ? (int)nums[0].size() : 0;
@@ -82,8 +77,6 @@ Maze::~Maze() {
             delete grid[i][j];
 }
 
-// ---- basic access -----------------------------------------------------------
-
 bool Maze::inBounds(int r, int c) const {
     return r >= 0 && r < nRow && c >= 0 && c < nCol;
 }
@@ -97,7 +90,6 @@ void Maze::setBlock(int r, int c, Block* b) {
     grid[r][c] = b;
 }
 
-// Replace every scheduled cell with a fresh Empty, keeping its visibility.
 void Maze::commit() {
     for (size_t k = 0; k < toEmpty.size(); ++k) {
         int r = toEmpty[k].first;
@@ -110,8 +102,6 @@ void Maze::commit() {
     toEmpty.clear();
 }
 
-// ---- fog of war -------------------------------------------------------------
-
 void Maze::reveal(int r, int c) {
     for (int i = r - 1; i <= r + 1; ++i)
         for (int j = c - 1; j <= c + 1; ++j)
@@ -119,17 +109,13 @@ void Maze::reveal(int r, int c) {
                 grid[i][j]->setVisible(true);
 }
 
-// ---- random item placement --------------------------------------------------
-
 void Maze::placeItems() {
-    // Gather every empty cell except the player's start corner.
     std::vector<std::pair<int, int>> empties;
     for (int i = 0; i < nRow; ++i)
         for (int j = 0; j < nCol; ++j)
             if (grid[i][j]->getType() == BlockType::EMPTY && !(i == 1 && j == 1))
                 empties.push_back(std::make_pair(i, j));
 
-    // Fisher-Yates shuffle so positions differ on every load.
     for (size_t i = empties.size(); i > 1; --i) {
         size_t j = rand() % i;
         std::swap(empties[i - 1], empties[j]);
@@ -137,15 +123,12 @@ void Maze::placeItems() {
 
     size_t idx = 0;
 
-    // N keys on floor N. Remember where they went so we can guarantee they
-    // stay reachable when the portals are placed.
     std::vector<std::pair<int, int>> keyCells;
     for (int k = 0; k < nKey && idx < empties.size(); ++k, ++idx) {
         setBlock(empties[idx].first, empties[idx].second, new Key());
         keyCells.push_back(empties[idx]);
     }
 
-    // A few obstacles (more on deeper floors).
     int nObs = level + 1;
     for (int k = 0; k < nObs && idx < empties.size(); ++k, ++idx)
         setBlock(empties[idx].first, empties[idx].second, new Obstacle());
@@ -172,7 +155,7 @@ void Maze::placeItems() {
             std::vector<std::pair<int, int>> trial = blocked;
             trial.push_back(mcand[i]);
             if (!reachableAvoiding(trial, required)) continue;
-            int mlv = 1 + rand() % (level + 2);
+            int mlv = 1 + rand() % (2 * level);
             setBlock(mcand[i].first, mcand[i].second, new Monster(mlv));
             blocked.push_back(mcand[i]);
             ++done;
@@ -212,6 +195,25 @@ void Maze::placeItems() {
             setBlock(safe[b].first, safe[b].second, B);
             placed = true;
         }
+    }
+
+    if (spawnMonsters) {
+        std::vector<std::pair<int, int>> pcand;
+        for (int i = 0; i < nRow; ++i)
+            for (int j = 0; j < nCol; ++j)
+                if (grid[i][j]->getType() == BlockType::EMPTY && !(i == 1 && j == 1))
+                    pcand.push_back(std::make_pair(i, j));
+        for (size_t i = pcand.size(); i > 1; --i) {
+            size_t j = rand() % i;
+            std::swap(pcand[i - 1], pcand[j]);
+        }
+        size_t pi = 0;
+        int wantExp = level + 1;
+        for (int k = 0; k < wantExp && pi < pcand.size(); ++k, ++pi)
+            setBlock(pcand[pi].first, pcand[pi].second, new ExpPotion());
+        int wantHp = level;
+        for (int k = 0; k < wantHp && pi < pcand.size(); ++k, ++pi)
+            setBlock(pcand[pi].first, pcand[pi].second, new HpPotion());
     }
 }
 
@@ -253,14 +255,12 @@ bool Maze::reachableAvoiding(const std::vector<std::pair<int, int>>& blocked,
     return true;
 }
 
-// ---- moving goal ------------------------------------------------------------
-
 void Maze::moveGoalRandom(int playerRow, int playerCol) {
     if (!useMovableGoal) return;
 
     const int dirs[4][2] = { {-1, 0}, {1, 0}, {0, -1}, {0, 1} };
     int order[4] = { 0, 1, 2, 3 };
-    for (int i = 3; i > 0; --i) {            // shuffle the 4 directions
+    for (int i = 3; i > 0; --i) {
         int j = rand() % (i + 1);
         std::swap(order[i], order[j]);
     }
@@ -268,8 +268,6 @@ void Maze::moveGoalRandom(int playerRow, int playerCol) {
     for (int k = 0; k < 4; ++k) {
         int nr = goalRow + dirs[order[k]][0];
         int nc = goalCol + dirs[order[k]][1];
-        // Goal may only step onto plain Empty cells (never Wall/Obstacle/etc),
-        // and never onto the player.
         if (nr == playerRow && nc == playerCol) continue;
         if (inBounds(nr, nc) && grid[nr][nc]->getType() == BlockType::EMPTY) {
             bool gVis = grid[goalRow][goalCol]->getVisible();
@@ -291,29 +289,44 @@ void Maze::moveGoalRandom(int playerRow, int playerCol) {
     }
 }
 
-// ---- rendering --------------------------------------------------------------
+static const char* RESET = "\033[0m";
 
-// A little text bar like [####------] for HP / EXP display.
-static std::string makeBar(int cur, int max, int width) {
+static const char* colorFor(BlockType t) {
+    switch (t) {
+        case BlockType::WALL:         return "\033[90m";
+        case BlockType::GOAL:
+        case BlockType::MOVABLE_GOAL: return "\033[93m";
+        case BlockType::KEY:          return "\033[1;93m";
+        case BlockType::OBSTACLE:     return "\033[31m";
+        case BlockType::PORTAL:       return "\033[96m";
+        case BlockType::MONSTER:      return "\033[91m";
+        case BlockType::EXP_POTION:   return "\033[92m";
+        case BlockType::HP_POTION:    return "\033[95m";
+        default:                      return "";
+    }
+}
+
+static std::string makeBar(int cur, int max, int width, const char* color) {
     if (max <= 0) max = 1;
     int filled = (cur * width) / max;
     if (filled < 0) filled = 0;
     if (filled > width) filled = width;
     std::string bar = "[";
+    bar += color;
     for (int i = 0; i < width; ++i) bar += (i < filled ? '#' : '-');
+    bar += RESET;
     bar += "]";
     return bar;
 }
 
 void Maze::printMaze(Player& player) {
-    std::cout << "\033[2J\033[1;1H";   // clear screen + cursor home
+    std::ostringstream buf;
+    buf << "\033[H";
 
-    // --- Camera / viewport ---
-    // Large floors are taller/wider than the terminal, so we only draw a
-    // window of blocks centred on the player and scroll it as they move.
-    // (Each block is 3x3 chars, so VIEW_ROWS*3 lines tall must fit the screen.)
-    const int VIEW_ROWS = 11;   // blocks shown vertically
-    const int VIEW_COLS = 17;   // blocks shown horizontally
+    const char* EOL = "\033[K\n";
+
+    const int VIEW_ROWS = 11;
+    const int VIEW_COLS = 17;
 
     int viewR = (VIEW_ROWS < nRow) ? VIEW_ROWS : nRow;
     int viewC = (VIEW_COLS < nCol) ? VIEW_COLS : nCol;
@@ -326,57 +339,88 @@ void Maze::printMaze(Player& player) {
     if (left > nCol - viewC) left = nCol - viewC;
 
     for (int r = top; r < top + viewR; ++r) {
-        for (int sr = 0; sr < 3; ++sr) {           // each block is 3 rows tall
+        for (int sr = 0; sr < 3; ++sr) {
             std::string out;
             for (int c = left; c < left + viewC; ++c) {
-                for (int sc = 0; sc < 3; ++sc) {   // ... and 3 cols wide
-                    char ch;
-                    // In dark mode only the 8 cells around the player are lit,
-                    // and nothing stays remembered; otherwise use the explored
-                    // (fog-of-war) flag.
-                    bool lit;
-                    if (fullBright) {
-                        lit = true;
-                    } else if (darkMode) {
-                        int ddr = r - player.getRow(); if (ddr < 0) ddr = -ddr;
-                        int ddc = c - player.getCol(); if (ddc < 0) ddc = -ddc;
-                        lit = (ddr <= 1 && ddc <= 1);
-                    } else {
-                        lit = grid[r][c]->getVisible();
-                    }
+                bool lit;
+                if (fullBright) {
+                    lit = true;
+                } else if (darkMode) {
+                    int ddr = r - player.getRow(); if (ddr < 0) ddr = -ddr;
+                    int ddc = c - player.getCol(); if (ddc < 0) ddc = -ddc;
+                    lit = (ddr <= 1 && ddc <= 1);
+                } else {
+                    lit = grid[r][c]->getVisible();
+                }
 
-                    if (r == player.getRow() && c == player.getCol()) {
-                        ch = player.render(sr, sc);            // draw the hero on top
+                bool isFx = (fxActive && r == fxRow && c == fxCol);
+                if (isFx) lit = true;
+
+                bool isPlayer = (r == player.getRow() && c == player.getCol());
+                const char* col;
+                if (isFx)          col = fxColor.c_str();
+                else if (isPlayer) col = "\033[1;92m";
+                else if (!lit)     col = "\033[90m";
+                else               col = colorFor(grid[r][c]->getType());
+
+                out += col;
+                for (int sc = 0; sc < 3; ++sc) {
+                    char ch;
+                    if (isPlayer) {
+                        ch = player.render(sr, sc);
                     } else if (lit) {
-                        ch = grid[r][c]->render(sr, sc);
+                        ch = grid[r][c]->renderAt(sr, sc, animTick);
                     } else {
-                        ch = (sr == 1 && sc == 1) ? '?' : ' '; // unexplored / dark
+                        ch = (sr == 1 && sc == 1) ? '?' : ' ';
                     }
                     out += ch;
                 }
+                out += RESET;
             }
-            std::cout << out << "\n";
+            buf << out << EOL;
         }
     }
 
-    // --- HUD ---
-    std::cout << "\n";
-    std::cout << "+--------------------------------------------------+\n";
-    std::cout << " Floor " << level << "/4"
-              << "    Keys " << player.getKeyCollected() << "/" << nKey
-              << "    Time " << player.getElapsed() << "s"
-              << (darkMode ? "    [Dark]" : "")
-              << (fullBright ? "    [Bright]" : "")
-              << (replayTag ? "    [REPLAY]" : "") << "\n";
-    std::cout << " Lv " << player.getLevel() << "/" << Player::MAX_LEVEL
-              << "    ATK " << player.getATK() << "\n";
-    std::cout << " HP  " << makeBar(player.getHP(), player.getMaxHP(), 12)
-              << " " << player.getHP() << "/" << player.getMaxHP() << "\n";
-    std::cout << " EXP " << makeBar(player.getEXP(), player.getExpToNext(), 12)
-              << " " << player.getEXP() << "/" << player.getExpToNext() << "\n";
-    std::cout << "+--------------------------------------------------+\n";
+    buf << EOL;
+    buf << "+--------------------------------------------------+" << EOL;
+    buf << " Floor " << level << "/4"
+        << "    Keys " << player.getKeyCollected() << "/" << nKey
+        << "    Time " << player.getElapsed() << "s"
+        << (darkMode ? "    [Dark]" : "")
+        << (fullBright ? "    [Bright]" : "")
+        << (timeAttackTag ? "    [Time]" : "")
+        << (replayTag ? "    [REPLAY]" : "") << EOL;
+    buf << " Lv " << player.getLevel() << "/" << Player::MAX_LEVEL
+        << "    ATK " << player.getATK() << EOL;
+    buf << " HP  " << makeBar(player.getHP(), player.getMaxHP(), 12, "\033[91m")
+        << " " << player.getHP() << "/" << player.getMaxHP() << EOL;
+    buf << " EXP " << makeBar(player.getEXP(), player.getExpToNext(), 12, "\033[92m")
+        << " " << player.getEXP() << "/" << player.getExpToNext() << EOL;
+    buf << "+--------------------------------------------------+" << EOL;
     if (!replayTag)
-        std::cout << " Controls:  W/A/S/D = move    E = exit\n";
+        buf << " Controls:  W/A/S/D = move    E = exit" << EOL;
     if (!message.empty())
-        std::cout << " >> " << message << "\n";
+        buf << " >> " << message << EOL;
+
+    buf << "\033[J";
+
+    std::cout << buf.str();
+    std::cout.flush();
+}
+
+void Maze::playCellFx(Player& player, int r, int c, const char* color,
+                      int blinks, int onMs, int offMs) {
+    if (replayTag) return;
+    fxRow = r;
+    fxCol = c;
+    fxColor = color;
+    for (int i = 0; i < blinks; ++i) {
+        fxActive = true;
+        printMaze(player);
+        sleep_ms(onMs);
+        fxActive = false;
+        printMaze(player);
+        sleep_ms(offMs);
+    }
+    fxActive = false;
 }
